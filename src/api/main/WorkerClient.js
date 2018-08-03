@@ -13,10 +13,12 @@ import type {
 	EntropySrcEnum,
 	ConversationTypeEnum,
 	AccountTypeEnum,
-	BookingItemFeatureTypeEnum
+	BookingItemFeatureTypeEnum, CloseEventBusOptionEnum
 } from "../common/TutanotaConstants"
 import {initLocator, locator} from "./MainLocator"
 import {client} from "../../misc/ClientDetector"
+import {identity} from "../common/utils/Utils"
+import stream from "mithril/stream/stream.js"
 
 assertMainOrNode()
 
@@ -25,11 +27,18 @@ function requireNodeOnly(path: string) {
 	return require(path)
 }
 
+type Message = {
+	id: string,
+	type: string,
+	args: mixed[]
+}
+
 export class WorkerClient {
 	initialized: Promise<void>;
 
 	_queue: Queue;
 	_progressUpdater: ?progressUpdater;
+	_wsConnection: stream<WsConnectionState> = stream("terminated");
 
 	constructor() {
 		initLocator(this)
@@ -52,8 +61,12 @@ export class WorkerClient {
 				}
 				return Promise.resolve()
 			},
-			updateIndexState: (message: any) => {
+			updateIndexState: (message: Message) => {
 				locator.search.indexState(message.args[0])
+				return Promise.resolve()
+			},
+			updateWebSocketState: (message: Message) => {
+				this._wsConnection(message.args[0]);
 				return Promise.resolve()
 			}
 		})
@@ -245,7 +258,7 @@ export class WorkerClient {
 		return this._postRequest(new Request('getCurrentPrice', arguments))
 	}
 
-	tryReconnectEventBus() {
+	tryReconnectEventBus(closeIfOpen: boolean) {
 		return this._postRequest(new Request('tryReconnectEventBus', arguments))
 	}
 
@@ -393,6 +406,14 @@ export class WorkerClient {
 
 	decryptUserPassword(userId: string, deviceToken: string, encryptedPassword: string): Promise<string> {
 		return this._postRequest(new Request('decryptUserPassword', arguments))
+	}
+
+	wsConnection(): stream<WsConnectionState> {
+		return this._wsConnection.map(identity)
+	}
+
+	closeEventBus(closeOption: CloseEventBusOptionEnum): Promise<void> {
+		return this._queue.postMessage(new Request("closeEventBus", [closeOption]))
 	}
 }
 

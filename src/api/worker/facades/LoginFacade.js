@@ -20,7 +20,7 @@ import {
 } from "../crypto/CryptoUtils"
 import {decryptKey, encryptKey, encryptBytes, encryptString} from "../crypto/CryptoFacade"
 import type {GroupTypeEnum} from "../../common/TutanotaConstants"
-import {GroupType, OperationType, AccountType} from "../../common/TutanotaConstants"
+import {GroupType, OperationType, AccountType, CloseEventBusOption} from "../../common/TutanotaConstants"
 import {aes128Decrypt, aes128RandomKey} from "../crypto/Aes"
 import {random} from "../crypto/Randomizer"
 import {CryptoError} from "../../common/error/CryptoError"
@@ -57,6 +57,7 @@ import type {Indexer} from "../search/Indexer"
 import {createDeleteCustomerData} from "../../entities/sys/DeleteCustomerData"
 import {createAutoLoginDataGet} from "../../entities/sys/AutoLoginDataGet"
 import {AutoLoginDataReturnTypeRef} from "../../entities/sys/AutoLoginDataReturn"
+import {locator} from "../WorkerLocator"
 
 assertWorkerOrNode()
 
@@ -92,7 +93,7 @@ export class LoginFacade {
 		this._authVerifierAfterNextRequest = null
 		this.groupKeys = {}
 		if (this._eventBusClient) {
-			this._eventBusClient.close()
+			this._eventBusClient.close(CloseEventBusOption.Terminate)
 		}
 		return Promise.resolve()
 	}
@@ -141,8 +142,7 @@ export class LoginFacade {
 									           mailAddress,
 									           accessToken: neverNull(this._accessToken),
 									           encryptedPassword: accessKey ? uint8ArrayToBase64(encryptString(accessKey, passphrase)) : null,
-									           userId: neverNull(this._user)._id,
-									           pushNotificationsEnabled: true
+									           userId: neverNull(this._user)._id
 								           }
 							           }
 						           })
@@ -198,8 +198,7 @@ export class LoginFacade {
 							           mailAddress: userId, // we set the external user id because we do not have the mail address
 							           accessToken: neverNull(this._accessToken),
 							           encryptedPassword: accessKey ? uint8ArrayToBase64(encryptString(accessKey, passphrase)) : null,
-							           userId,
-							           pushNotificationsEnabled: false
+							           userId
 						           }
 					           }
 				           })

@@ -10,12 +10,29 @@ assertMainOrNodeBoot()
 
 styles.registerStyle('main', () => {
 	return {
-		"*:not(input):not(textarea)": (isApp() ? {
-			"-webkit-user-select": "none", /* disable selection/Copy of UIWebView */
+		"*:not(input):not(textarea)": {
+			"user-select": "none", /* disable selection/Copy for UI elements*/
+			"-ms-user-select": "none",
+			"-webkit-user-select": "none",
+			"-moz-user-select": "none",
 			"-webkit-touch-callout": "none", /* disable the IOS popup when long-press on a link */
 			"-webkit-user-drag": "none",
 			"-webkit-tap-highlight-color": "rgba(0, 0, 0, 0)"
-		} : {}),
+		},
+
+		".selectable": {
+			"user-select": "text !important",
+			"-ms-user-select": "text !important",
+			"-webkit-user-select": "text !important",
+			"-moz-user-select": "text !important",
+		},
+
+		".selectable *": {
+			"user-select": "text !important",
+			"-ms-user-select": "text !important",
+			"-webkit-user-select": "text !important",
+			"-moz-user-select": "text !important",
+		},
 
 		"@font-face": {
 			"font-family": "'Ionicons'",
@@ -718,6 +735,30 @@ styles.registerStyle('main', () => {
 			},
 			'.column-width-small': {width: px(size.column_width_s_mobile)}
 		},
+
+		'@keyframes move-stripes': {
+			'0%': {
+				'background-position': '0 0'
+			},
+			'100%': {
+				'background-position': '15px 0'
+			}
+		},
+
+		'.indefinite-progress': {
+			"background-image": `repeating-linear-gradient(
+  -45deg,
+  ${theme.content_accent},
+  ${theme.content_accent} 5px,
+  ${theme.content_bg} 5px,
+  ${theme.content_bg} 10px
+);`,
+			"background-size": px(15),
+			"width": "100%",
+			"height": px(3),
+			"animation": "move-stripes 2s linear infinite"
+		},
+
 
 		// media query for mobile devices, should be one pixel less than style.isDesktopLayout
 		[`@media (max-width: ${size.desktop_layout_width - 1}px)`]: {

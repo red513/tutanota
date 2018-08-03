@@ -6,7 +6,7 @@ import {lang} from "../misc/LanguageViewModel"
 import {erase, loadAll} from "../api/main/Entity"
 import {neverNull} from "../api/common/utils/Utils"
 import {createPushIdentifier, PushIdentifierTypeRef} from "../api/entities/sys/PushIdentifier"
-import {Button, ButtonType, createDropDownButton} from "../gui/base/Button"
+import {Button} from "../gui/base/Button"
 import {ExpanderButton, ExpanderPanel} from "../gui/base/Expander"
 import {pushServiceApp} from "../native/PushServiceApp"
 import {logins} from "../api/main/LoginController"
@@ -30,7 +30,7 @@ type NotificationRowAttrs = {|
 class NotificationRowView implements MComponent<NotificationRowAttrs> {
 	view(vnode: Vnode<NotificationRowAttrs>): Children {
 		return m(".flex.flex-column.full-width", [
-				m(".flex-space-between.items-center",
+				m(".flex-space-between.items-center.selectable",
 					[
 						m("span" + (vnode.attrs.current ? ".b" : ""), vnode.attrs.name),
 						this._buttonRemove(vnode),
@@ -42,27 +42,27 @@ class NotificationRowView implements MComponent<NotificationRowAttrs> {
 
 	_identifier(vnode: Vnode<NotificationRowAttrs>): Child {
 		if (vnode.attrs.identifier) {
-			return m(".text-break.small.monospace.mt-negative-s", neverNull(vnode.attrs.identifier.match(/.{2}/g))
+			return m(".text-break.small.monospace.mt-negative-s.selectable", neverNull(vnode.attrs.identifier.match(/.{2}/g))
 				.map((el, i) => m("span.pr-s" + (i % 2 === 0 ? ".b" : ""), el)))
 		} else {
-			return m(".small.i.mt-negative-s", "Disabled")
+			return m(".small.i.mt-negative-s.selectable", "Disabled")
 		}
 	}
 
 	_buttonRemove(vnode: Vnode<NotificationRowAttrs>): Child {
-		if (vnode.attrs.current) {
-			const disabled = !vnode.attrs.identifier
-			return m(createDropDownButton("more_label", () => Icons.More, () => (disabled ? [] : [
-				new Button("delete_action", vnode.attrs.removeClicked)
-					.setType(ButtonType.Dropdown)
-			]).concat([
-				new Button(disabled ? "enableForThisDevice_action" : "disableForThisDevice_action",
-					() => vnode.attrs.enableClicked(disabled))
-					.setType(ButtonType.Dropdown)
-			]), /*width=*/ vnode.dom ? Math.min(300, vnode.dom.offsetWidth) : 300))
-		} else {
-			return m(new Button("notificationsDisabled_label", vnode.attrs.removeClicked, () => Icons.Cancel))
-		}
+		/*		if (vnode.attrs.current) {
+		 const disabled = !vnode.attrs.identifier
+		 return m(createDropDownButton("more_label", () => Icons.More, () => (disabled ? [] : [
+		 new Button("delete_action", vnode.attrs.removeClicked)
+		 .setType(ButtonType.Dropdown)
+		 ]).concat([
+		 new Button(disabled ? "enableForThisDevice_action" : "disableForThisDevice_action",
+		 () => vnode.attrs.enableClicked(disabled))
+		 .setType(ButtonType.Dropdown)
+		 ]), /!*width=*!/ vnode.dom ? Math.min(300, vnode.dom.offsetWidth) : 300))
+		 } else {*/
+		return m(new Button("notificationsDisabled_label", vnode.attrs.removeClicked, () => Icons.Cancel))
+//		}
 	}
 }
 
@@ -87,27 +87,28 @@ export class MailSettingNotificationViewer {
 					identifier: identifier.identifier,
 					current: current,
 					removeClicked: () => erase(identifier),
-					enableClicked: this._enableNotifications
+					//enableClicked: this._enableNotifications
 				})
 			}).sort((l, r) => r.attrs.current - l.attrs.current)
 
 			// If notifications were disabled, add a row for the current device
-			if (isApp() && (rows.length === 0 || rows.length > 0 && !rows[0].attrs.current)) {
-				rows.unshift(m(NotificationRowView, {
-					name: lang.get("pushIdentifierCurrentDevice_label"),
-					identifier: null,
-					current: true,
-					removeClicked: () => {},
-					enableClicked: this._enableNotifications
-				}))
-			}
+			/*			if (isApp() && (rows.length === 0 || rows.length > 0 && !rows[0].attrs.current)) {
+			 rows.unshift(m(NotificationRowView, {
+			 name: lang.get("pushIdentifierCurrentDevice_label"),
+			 identifier: null,
+			 current: true,
+			 removeClicked: () => {
+			 },
+			 enableClicked: this._enableNotifications
+			 }))
+			 }*/
 			return m(".flex.flex-column.items-end.mb", [rowAdd].concat(rows))
 		},
 	}
 
-	_enableNotifications(enabled: boolean) {
-		pushServiceApp.enableNotifications(enabled).then(m.redraw)
-	}
+	/*	_enableNotifications(enabled: boolean) {
+	 pushServiceApp.enableNotifications(enabled).then(m.redraw)
+	 }*/
 
 	pushIdentifiersExpander =
 		new ExpanderButton("show_action", new ExpanderPanel(this.expanderContent), false)

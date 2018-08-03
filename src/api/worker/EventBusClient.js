@@ -2,26 +2,38 @@
 import type {LoginFacade} from "./facades/LoginFacade"
 import type {MailFacade} from "./facades/MailFacade"
 import type {WorkerImpl} from "./WorkerImpl"
-import {encryptAndMapToLiteral, applyMigrations, decryptAndMapToInstance} from "./crypto/CryptoFacade"
-import {getWebsocketOrigin, assertWorkerOrNode, Mode, isIOSApp, isTest, isAdmin} from "../Env"
+import {applyMigrations, decryptAndMapToInstance, encryptAndMapToLiteral} from "./crypto/CryptoFacade"
+import {assertWorkerOrNode, getWebsocketOrigin, isAdmin, isIOSApp, isTest, Mode} from "../Env"
 import {createAuthentication} from "../entities/sys/Authentication"
 import {
 	_TypeModel as WebsocketWrapperTypeModel,
-	WebsocketWrapperTypeRef,
-	createWebsocketWrapper
+	createWebsocketWrapper,
+	WebsocketWrapperTypeRef
 } from "../entities/sys/WebsocketWrapper"
 import {_TypeModel as MailTypeModel} from "../entities/tutanota/Mail"
 import type {EntityRestCache} from "./rest/EntityRestCache"
-import {loadAll, load, loadRange} from "./EntityWorker"
-import {GENERATED_MIN_ID, getLetId, GENERATED_MAX_ID, firstBiggerThanSecond} from "../common/EntityFunctions"
-import {NotFoundError, NotAuthorizedError, ConnectionError, handleRestError} from "../common/error/RestError"
+import {load, loadAll, loadRange} from "./EntityWorker"
+import {firstBiggerThanSecond, GENERATED_MAX_ID, GENERATED_MIN_ID, getLetId} from "../common/EntityFunctions"
+import {ConnectionError, handleRestError, NotAuthorizedError, NotFoundError} from "../common/error/RestError"
 import {EntityEventBatchTypeRef} from "../entities/sys/EntityEventBatch"
 import {neverNull} from "../common/utils/Utils"
 import {OutOfSyncError} from "../common/error/OutOfSyncError"
 import {contains} from "../common/utils/ArrayUtils"
 import type {Indexer} from "./search/Indexer"
+import type {CloseEventBusOptionEnum} from "../common/TutanotaConstants"
+import {CloseEventBusOption} from "../common/TutanotaConstants"
 
 assertWorkerOrNode()
+
+
+const EventBusState = {
+	Automatic: "automatic", // automatic reconnection is enabled
+	Suspended: "suspended", // automatic reconnection is suspended but can be enabled again
+	Terminated: "terminated" // automatic reconnection is disabled and websocket is closed but can be opened again by calling connect explicit
+}
+
+type EventBusStateEnum = $Values<typeof EventBusState>;
+
 
 export class EventBusClient {
 	_MAX_EVENT_IDS_QUEUE_LENGTH: number;
@@ -32,8 +44,8 @@ export class EventBusClient {
 	_mail: MailFacade;
 	_login: LoginFacade;
 
+	_state: EventBusStateEnum;
 	_socket: ?WebSocket;
-	_terminated: boolean; // if terminated, only reconnects if explicitely connect() is called from outside, but never by automatic reconnects
 	_immediateReconnect: boolean; // if true tries to reconnect immediately after the websocket is closed
 	_lastEntityEventIds: {[key: Id]: Id[]}; // maps group id to last event ids (max. 1000). we do not have to update these event ids if the groups of the user change because we always take the current users groups from the LoginFacade.
 	_queueWebsocketEvents: boolean
@@ -47,7 +59,7 @@ export class EventBusClient {
 		this._mail = mail
 		this._login = login
 		this._socket = null
-		this._terminated = false
+		this._state = EventBusState.Automatic
 		this._reset()
 
 		// we store the last 1000 event ids per group, so we know if an event was already processed.
@@ -73,6 +85,7 @@ export class EventBusClient {
 			return
 		}
 		console.log("ws connect reconnect=", reconnect);
+
 		let url = getWebsocketOrigin() + "/event/";
 		this._socket = new WebSocket(url);
 		this._socket.onopen = () => {
@@ -98,7 +111,7 @@ export class EventBusClient {
 					const socket = (this._socket: any)
 					if (socket.readyState === 1) {
 						socket.send(JSON.stringify(entityForSending));
-						this._terminated = false
+						this._state = EventBusState.Automatic
 					} else if (socket.readyState === 0) {
 						setTimeout(sendInitialMsg, 5)
 					}
@@ -110,6 +123,7 @@ export class EventBusClient {
 					this._setLatestEntityEventIds()
 				}
 			})
+			this._worker.updateWebSocketState("connected")
 		};
 		this._socket.onclose = (event: CloseEvent) => this._close(event);
 		this._socket.onerror = (error: any) => this._error(error);
@@ -120,19 +134,30 @@ export class EventBusClient {
 	 * Sends a close event to the server and finally closes the connection.
 	 * The state of this event bus client is reset and the client is terminated (does not automatically reconnect) except reconnect == true
 	 */
-	close(reconnect: boolean = false) {
-		console.log("ws close: ", new Date(), "reconnect: ", reconnect);
-		if (!reconnect) {
-			this._terminate()
+	close(closeOption: CloseEventBusOptionEnum) {
+		console.log("ws close: ", new Date(), "closeOption: ", closeOption);
+		switch (closeOption) {
+			case CloseEventBusOption.Terminate:
+				this._terminate()
+				break
+			case CloseEventBusOption.Pause:
+				this._state = EventBusState.Suspended
+				this._worker.updateWebSocketState("connecting")
+				break
+			case CloseEventBusOption.Reconnect:
+				this._worker.updateWebSocketState("connecting")
+				break;
 		}
+
 		if (this._socket && this._socket.close) { // close is undefined in node tests
-			this._socket.close();
+			this._socket.close()
 		}
 	}
 
 	_terminate(): void {
-		this._terminated = true
+		this._state = EventBusState.Terminated
 		this._reset()
+		this._worker.updateWebSocketState("terminated")
 	}
 
 	_error(error: any) {
@@ -176,7 +201,9 @@ export class EventBusClient {
 			this._worker.sendError(handleRestError(event.code - 4000, "web socket error"))
 		}
 
-		if (!this._terminated && this._login.isLoggedIn()) {
+		if (this._state === EventBusState.Automatic && this._login.isLoggedIn()) {
+			this._worker.updateWebSocketState("connecting")
+
 			if (this._immediateReconnect || isIOSApp()) {
 				this._immediateReconnect = false
 				// on ios devices the close event fires when the app comes back to foreground
@@ -199,7 +226,10 @@ export class EventBusClient {
 			console.log("closing websocket connection before reconnect")
 			this._immediateReconnect = true
 			neverNull(this._socket).close();
-		} else if ((this._socket == null || this._socket.readyState === WebSocket.CLOSED) && !this._terminated
+		} else if (
+			(this._socket == null || this._socket.readyState === WebSocket.CLOSED
+				|| this._socket.readyState == WebSocket.CLOSING)
+			&& this._state !== EventBusState.Terminated
 			&& this._login.isLoggedIn()) {
 			this.connect(true);
 		}
@@ -225,7 +255,7 @@ export class EventBusClient {
 			return this._processQueuedEvents()
 		}).catch(ConnectionError, e => {
 			console.log("not connected in _setLatestEntityEventIds, close websocket", e)
-			this.close(true)
+			this.close(CloseEventBusOption.Reconnect)
 		}).finally(() => {
 			this._queueWebsocketEvents = false
 		})
@@ -249,7 +279,7 @@ export class EventBusClient {
 				}
 			}).catch(ConnectionError, e => {
 				console.log("not connected in _loadMissedEntityEvents, close websocket", e)
-				this.close(true)
+				this.close(CloseEventBusOption.Reconnect)
 			}).finally(() => {
 				this._queueWebsocketEvents = false
 			})
@@ -352,7 +382,7 @@ export class EventBusClient {
 	}
 
 	_executeIfNotTerminated(call: Function): Promise<void> {
-		if (!this._terminated) {
+		if (this._state !== EventBusState.Terminated) {
 			return call()
 		} else {
 			return Promise.resolve()

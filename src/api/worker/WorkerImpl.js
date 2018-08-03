@@ -218,13 +218,18 @@ export class WorkerImpl {
 				return this.addEntropy(message.args[0])
 			},
 			tryReconnectEventBus(message: Request) {
-				return locator.login.tryReconnectEventBus()
+				locator.eventBusClient.tryReconnect(message.args[0])
+				return Promise.resolve()
 			},
 			generateSsePushIdentifer: () => {
 				return Promise.resolve(keyToBase64(aes256RandomKey()))
 			},
 			decryptUserPassword: (message: Request) => {
 				return locator.login.decryptUserPassword.apply(locator.login, message.args)
+			},
+			closeEventBus: (message: Request) => {
+				locator.eventBusClient.close(message.args[0])
+				return Promise.resolve()
 			}
 		})
 
@@ -275,6 +280,10 @@ export class WorkerImpl {
 
 	sendIndexState(state: SearchIndexStateInfo): Promise<void> {
 		return this._queue.postMessage(new Request("updateIndexState", [state]))
+	}
+
+	updateWebSocketState(state: WsConnectionState): Promise<void> {
+		return this._queue.postMessage(new Request("updateWebSocketState", [state]))
 	}
 }
 

@@ -16,6 +16,7 @@ import {BootIcons} from "./icons/BootIcons"
 import type {SearchBar} from "../../search/SearchBar"
 import type {MainLocatorType} from "../../api/main/MainLocator"
 import {Icons} from "./icons/Icons"
+import type {WorkerClient} from "../../api/main/WorkerClient";
 
 export const LogoutUrl = '/login?noAutoLogin=true'
 
@@ -33,6 +34,7 @@ class Header {
 	_shortcuts: Shortcut[];
 	mailNavButton: NavButton;
 	searchBar: ?SearchBar
+	_wsState: WsConnectionState = "terminated"
 
 	constructor() {
 		this.contactsUrl = '/contact'
@@ -88,7 +90,7 @@ class Header {
 			const currentView: ?any = this._currentView
 			const injectedView = currentView && currentView.headerView instanceof Function ?
 				currentView.headerView() : null
-			return m(".header-nav.overflow-hidden", injectedView || [
+			return m(".header-nav.overflow-hidden", [this._connectionIndicator()].concat(injectedView || [
 				m(".header-left.pl-l.ml-negative-s.flex-start.items-center.overflow-hidden", {
 					style: styles.isDesktopLayout() ? null : {'margin-left': px(-15)}  // manual margin to align the hamburger icon on mobile devices
 				}, this._getLeftElements()),
@@ -96,13 +98,22 @@ class Header {
 				m(".header-right.pr-l.mr-negative-m.flex-end.items-center", {
 					style: styles.isDesktopLayout() ? null : {'margin-right': px(-18)} // manual margin to align the hamburger icon on mobile devices
 				}, m(this.buttonBar))
-			])
+			]))
 		}
 
 		asyncImport(typeof module !== "undefined" ?
 			module.id : __moduleName, `${env.rootPathPrefix}src/search/SearchBar.js`)
 			.then((searchBarModule) => {
 				this.searchBar = new searchBarModule.SearchBar()
+			})
+
+		asyncImport(typeof module !== "undefined" ?
+			module.id : __moduleName, `${env.rootPathPrefix}src/api/main/WorkerClient.js`)
+			.then(workerClientModule => {
+				(workerClientModule.worker: WorkerClient).wsConnection().map(state => {
+					this._wsState = state
+					m.redraw()
+				})
 			})
 	}
 
@@ -188,9 +199,7 @@ class Header {
 		})
 	}
 
-	_createMailEditor()
-		:
-		Promise<MailEditor> {
+	_createMailEditor(): Promise<MailEditor> {
 		return Promise.join(
 			asyncImport(typeof module !== "undefined" ?
 				module.id : __moduleName, `${env.rootPathPrefix}src/mail/MailEditor.js`),
@@ -202,9 +211,7 @@ class Header {
 		)
 	}
 
-	_getCenterContent()
-		:
-		Vnode<mixed> | null {
+	_getCenterContent(): Vnode<mixed> | null {
 		const viewSlider = this._getViewSlider()
 		const header = (title: string) => m(".flex-center.header-middle.items-center.text-ellipsis.b", title)
 		if (this._searchBarVisible()) {
@@ -220,9 +227,7 @@ class Header {
 		}
 	}
 
-	_searchBar()
-		:
-		Vnode<any> {
+	_searchBar(): Vnode<any> {
 		let placeholder;
 		if (m.route.get().startsWith("/search/mail")) {
 			placeholder = lang.get("searchEmails_placeholder")
@@ -261,22 +266,23 @@ class Header {
 		}
 	}
 
-	updateCurrentView(currentView
-		                  :
-		                  Component
-	) {
+	updateCurrentView(currentView: Component) {
 		this._currentView = currentView
 	}
 
-	_getViewSlider()
-		:
-	? IViewSlider {
-		if (this._currentView
-		) {
+	_getViewSlider(): ?IViewSlider {
+		if (this._currentView) {
 			return (this._currentView: any).viewSlider
-		}
-		else {
+		} else {
 			return null
+		}
+	}
+
+	_connectionIndicator(): Children {
+		if (this._wsState === "connected" || this._wsState === "terminated") {
+			return null
+		} else {
+			return m(".indefinite-progress")
 		}
 	}
 }
